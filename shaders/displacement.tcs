@@ -1,0 +1,57 @@
+#version 410 core
+
+layout(vertices=3) out;     // we define that we are working with triangles and not quads (as also set in the CPU)
+
+in vec2 UVs[];
+out vec2 UVsCoord[];
+in vec3 normal[];
+out vec3 N[];
+in vec3 tangent[];
+out vec3 T[];
+in vec3 bitangent[];
+out vec3 B[];
+
+uniform int numFaces;    //num of triangles of the mesh
+uniform mat4 viewMatrix;
+uniform mat4 modelMatrix;
+
+void main()
+{   
+    //we pass through UVs, normals and position of each point of the triangle to subdivide
+    gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
+    UVsCoord[gl_InvocationID] = UVs[gl_InvocationID];
+    N[gl_InvocationID] = normal[gl_InvocationID];
+    T[gl_InvocationID] = tangent[gl_InvocationID];
+    B[gl_InvocationID] = bitangent[gl_InvocationID];
+
+    if(gl_InvocationID == 0)    //we set tessellation levels only on the first point of each triangle to subdivide
+    {   
+        //we set min and max tessellation levels according to the number offaces already present in the mesh so that we have 10k<n<500k faces per mesh after tessellation
+        int MIN_TESS_LEVEL = max(1, int((sqrt((5000/numFaces) * 4))/2));
+        int MAX_TESS_LEVEL = max(1, int((sqrt((500000/numFaces) * 4))/2));
+
+        //we set max and min distance to interpolate between max and min tessellation level, this way we have some rudimental adaptive tessellation
+        const float MIN_DISTANCE = 10;
+        const float MAX_DISTANCE = 100;
+
+        vec4 eyeSpacePos00 = viewMatrix * modelMatrix * gl_in[0].gl_Position;
+        vec4 eyeSpacePos01 = viewMatrix * modelMatrix * gl_in[1].gl_Position;
+        vec4 eyeSpacePos10 = viewMatrix * modelMatrix * gl_in[2].gl_Position;
+
+        float distance00 = clamp((abs(eyeSpacePos00.z)-MIN_DISTANCE) / (MAX_DISTANCE-MIN_DISTANCE), 0.0, 1.0);
+        float distance01 = clamp((abs(eyeSpacePos01.z)-MIN_DISTANCE) / (MAX_DISTANCE-MIN_DISTANCE), 0.0, 1.0);
+        float distance10 = clamp((abs(eyeSpacePos10.z)-MIN_DISTANCE) / (MAX_DISTANCE-MIN_DISTANCE), 0.0, 1.0);
+
+        //interpolation
+        float tessLevel0 = mix( MAX_TESS_LEVEL, MIN_TESS_LEVEL, min(distance10, distance00) );
+        float tessLevel1 = mix( MAX_TESS_LEVEL, MIN_TESS_LEVEL, min(distance00, distance01) );
+        float tessLevel2 = mix( MAX_TESS_LEVEL, MIN_TESS_LEVEL, min(distance01, distance10) );
+
+        gl_TessLevelOuter[0] = tessLevel0;
+        gl_TessLevelOuter[1] = tessLevel1;
+        gl_TessLevelOuter[2] = tessLevel2;
+
+        gl_TessLevelInner[0] = max(tessLevel1, tessLevel2);
+
+    }
+}
